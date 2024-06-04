@@ -1,0 +1,14 @@
+[package]
+name = "rstotp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arboard = "3.4.0"
+clap = { version = "4.5.4", features = ["derive"] }
+ctrlc = "3.4.4"
+indicatif = "0.17.8"
+platform-dirs = "0.3.0"
+rust-otp = "2.0.0"
+serde = { version = "1.0.203", features = ["derive"] }
+toml = "0.8.13"
