@@ -9,7 +9,7 @@ use arboard::Clipboard;
 use clap::Parser;
 
 use std:: {
-    collections::HashMap, fs::{self, File}, io, sync::{atomic::{AtomicBool, Ordering}, Arc}, thread, time::{Duration, SystemTime, UNIX_EPOCH}
+    collections::HashMap, fs::{self, File}, io, sync::{atomic::{AtomicBool, Ordering}, Arc}, thread::{self}, time::{Duration, SystemTime, UNIX_EPOCH}
 };
 
 #[derive(Parser)]
@@ -44,27 +44,22 @@ fn main() -> io::Result<()> {
 
     let keys = &load_keys()["key"];
     // Decodes secrets and prints out code + time left
-    let mut name_avail = false;
     for i in keys {
         if args.name.eq(&i.name) {
-            name_avail = true;
-            let code = match rust_otp::make_totp(&(i.secret.to_ascii_uppercase()), 30, 0) {
-                Ok(u32) => u32,
-                Err(_otperror) => panic!("Failed to generate codes from secret. Check if codes are valid."),
-            };
-            clipboard.set_text(code.to_string()).unwrap();
-            println!("{}", code);
+            while running.load(Ordering::SeqCst) {
+                // Loop for timer & clipboard
+                // Finds TOTP code
+                let code = match rust_otp::make_totp(&i.secret.to_ascii_uppercase(), 30, 0) {
+                    Ok(u32) => u32,
+                    Err(_otperror) => panic!("Failed to generate codes from secret. Check if codes are valid."),
+                };
+                // Sets Clipboard to code
+                clipboard.set_text(code.to_string()).unwrap();
+        
+                thread::sleep(Duration::from_millis(500));
+                pb.set_position(time_left());
+            }
         }
-    }
-    
-    if !name_avail {
-        panic!("Name not found! Try again");
-    }
-    
-    // Loop for timer & clipboard
-    while running.load(Ordering::SeqCst) {
-        thread::sleep(Duration::from_millis(500));
-        pb.set_position(time_left());
     }
 
     // Clear clipboard, exit and return ok
