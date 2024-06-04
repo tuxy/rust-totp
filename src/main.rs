@@ -5,11 +5,12 @@ use platform_dirs::AppDirs;
 use indicatif::ProgressBar;
 use ctrlc;
 use arboard::Clipboard;
+use inline_colorization::*;
 
 use clap::Parser;
 
 use std:: {
-    collections::HashMap, fs::{self, File}, io, sync::{atomic::{AtomicBool, Ordering}, Arc}, thread::{self}, time::{Duration, SystemTime, UNIX_EPOCH}
+    collections::HashMap, fs::{self, File}, io, sync::{atomic::{AtomicBool, Ordering}, Arc}, thread, time::{Duration, SystemTime, UNIX_EPOCH}
 };
 
 #[derive(Parser)]
@@ -37,13 +38,14 @@ fn main() -> io::Result<()> {
 
     ctrlc::set_handler(move || {
         r.store(false, Ordering::SeqCst);
-    }).expect("Error setting Ctrl-C handler");
+    }).expect("Cannot set Ctrl-C handler. ");
 
     // Create a new indicatif progress bar
     let pb = ProgressBar::new(30);
 
     let keys = &load_keys()["key"];
     // Decodes secrets and prints out code + time left
+    let mut any: bool = false;
     for i in keys {
         if args.name.eq(&i.name) {
             while running.load(Ordering::SeqCst) {
@@ -51,21 +53,30 @@ fn main() -> io::Result<()> {
                 // Finds TOTP code
                 let code = match rust_otp::make_totp(&i.secret.to_ascii_uppercase(), 30, 0) {
                     Ok(u32) => u32,
-                    Err(_otperror) => panic!("Failed to generate codes from secret. Check if codes are valid."),
+                    Err(_otperror) => {
+                        panic!("Failed to generate codes from secret. Check if codes are valid.");
+                    },
                 };
                 // Sets Clipboard to code
                 clipboard.set_text(code.to_string()).unwrap();
         
                 thread::sleep(Duration::from_millis(500));
                 pb.set_position(time_left());
+                any = true;
             }
         }
     }
 
-    // Clear clipboard, exit and return ok
-    clipboard.clear().expect("Unable to clear clipboard");
-    println!("Exiting & Clearing clipboard...");
-    Ok(())
+    // Checks if keys exist. If they don't, then warn the user
+    if !any {
+        println!("{color_yellow}WARN:{color_reset} Found no keys");
+        Ok(())
+    } else {
+            // Clear clipboard, exit and return ok
+        clipboard.clear().expect("Unable to clear clipboard");
+        println!("Exiting & Clearing clipboard...");
+        Ok(())
+    }
 }
 
 // Function that returns time left of a TOTP (30 seconds ONLY)
@@ -94,8 +105,7 @@ fn load_keys() -> HashMap<String, Vec<Item>> {
 
     let items_string: String = fs::read_to_string(config_file_path.into_os_string())
         .expect("Could not load toml. Check format?");
-    let items_table: HashMap<String, Vec<Item>> = from_str(&items_string)
-        .unwrap();
+    let items_table: HashMap<String, Vec<Item>> = from_str(&items_string).unwrap();
     
     items_table
 }
