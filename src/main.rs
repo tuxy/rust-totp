@@ -5,7 +5,6 @@ use platform_dirs::AppDirs;
 use indicatif::ProgressBar;
 use ctrlc;
 use arboard::Clipboard;
-use inline_colorization::*;
 
 use clap::Parser;
 
@@ -19,7 +18,7 @@ struct Args {
     name: String
 }
 
-
+// Item struct to deserialize TOML
 #[derive(Deserialize, Debug)]
 struct Item {
     name: String,
@@ -33,12 +32,12 @@ fn main() -> io::Result<()> {
 
     // Parse arguments & Initialise clipboard
     let args = Args::parse();
-    let mut clipboard = Clipboard::new().unwrap();
+    let mut clipboard = Clipboard::new().expect("Could not initialise clipboard.");
 
-
+    // Setting Ctrl-C handler to "gracefully" handle error
     ctrlc::set_handler(move || {
         r.store(false, Ordering::SeqCst);
-    }).expect("Cannot set Ctrl-C handler. ");
+    }).expect("Cannot set Ctrl-C handler.");
 
     // Create a new indicatif progress bar
     let pb = ProgressBar::new(30);
@@ -68,13 +67,12 @@ fn main() -> io::Result<()> {
     }
 
     // Checks if keys exist. If they don't, then warn the user
-    if !any {
-        println!("{color_yellow}WARN:{color_reset} Found no keys");
+    if any {
+        clipboard.clear().expect("Unable to clear clipboard"); // Clear clipboard, exit and return ok
+        println!("Exiting & Clearing clipboard...");
         Ok(())
     } else {
-            // Clear clipboard, exit and return ok
-        clipboard.clear().expect("Unable to clear clipboard");
-        println!("Exiting & Clearing clipboard...");
+        println!("WARN: Found no keys.");
         Ok(())
     }
 }
@@ -95,17 +93,17 @@ fn load_keys() -> HashMap<String, Vec<Item>> {
     let app_dirs = AppDirs::new(Some("rstotp"), true).unwrap();
     let config_file_path = app_dirs.config_dir.join("secrets.toml");
 
-    fs::create_dir_all(&app_dirs.config_dir).unwrap();
+    fs::create_dir_all(&app_dirs.config_dir).expect("Could not create config directory.");
 
     let _file = if config_file_path.exists() {
-        File::open(config_file_path.clone()).unwrap()
+        File::open(config_file_path.clone()).expect("Could not open config")
     } else {
-        File::create(config_file_path.clone()).unwrap()
+        File::create(config_file_path.clone()).expect("Could not create config")
     };
 
     let items_string: String = fs::read_to_string(config_file_path.into_os_string())
         .expect("Could not load toml. Check format?");
-    let items_table: HashMap<String, Vec<Item>> = from_str(&items_string).unwrap();
+    let items_table: HashMap<String, Vec<Item>> = from_str(&items_string).expect("Could not load TOML Secrets. Please check formatting");
     
     items_table
 }
