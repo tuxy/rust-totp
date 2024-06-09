@@ -23,6 +23,7 @@ struct Args {
 struct Item {
     name: String,
     secret: String,
+    time: u64,
 }
 
 fn main() -> io::Result<()> {
@@ -39,18 +40,20 @@ fn main() -> io::Result<()> {
         r.store(false, Ordering::SeqCst);
     }).expect("Cannot set Ctrl-C handler.");
 
-    // Create a new indicatif progress bar
-    let pb = ProgressBar::new(30);
-
     let keys = &load_keys()["key"];
     // Decodes secrets and prints out code + time left
+    // Variable to (very shoddily) check if code has been found 
     let mut any: bool = false;
     for i in keys {
         if args.name.eq(&i.name) {
-            while running.load(Ordering::SeqCst) {
+                            
+            // Create a new indicatif progress bar
+            let pb = ProgressBar::new(i.time);
+
+            while running.load(Ordering::SeqCst) { // Ctrl-C handler
                 // Loop for timer & clipboard
                 // Finds TOTP code
-                let code = match rust_otp::make_totp(&i.secret.to_ascii_uppercase(), 30, 0) {
+                let code = match rust_otp::make_totp(&i.secret.to_ascii_uppercase(), i.time, 0) {
                     Ok(u32) => u32,
                     Err(_otperror) => {
                         panic!("Failed to generate codes from secret. Check if codes are valid.");
@@ -60,7 +63,7 @@ fn main() -> io::Result<()> {
                 clipboard.set_text(code.to_string()).unwrap();
         
                 thread::sleep(Duration::from_millis(500));
-                pb.set_position(time_left());
+                pb.set_position(time_left(i.time));
                 any = true;
             }
         }
@@ -78,13 +81,13 @@ fn main() -> io::Result<()> {
 }
 
 // Function that returns time left of a TOTP (30 seconds ONLY)
-fn time_left() -> u64 {
+fn time_left(time: u64) -> u64 {
     let start = SystemTime::now();
     let time_since_epoch = start
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards???? Check system clock.")
         .as_secs();
-    30 - time_since_epoch % 30
+    time - time_since_epoch % time 
 }
 
 // Loads keys from a TOML file into a HashMap
@@ -96,13 +99,15 @@ fn load_keys() -> HashMap<String, Vec<Item>> {
     fs::create_dir_all(&app_dirs.config_dir).expect("Could not create config directory.");
 
     let _file = if config_file_path.exists() {
-        File::open(config_file_path.clone()).expect("Could not open config")
+        File::open(&config_file_path).expect("Could not open config")
     } else {
-        File::create(config_file_path.clone()).expect("Could not create config")
+        File::create(&config_file_path).expect("Could not create config")
     };
 
+    // TODO: Use a more reliable method to load TOML file directly into a TOML, without converting to string and back. Any minor error in TOML or string would cause program to flip out
     let items_string: String = fs::read_to_string(config_file_path.into_os_string())
         .expect("Could not load toml. Check format?");
+
     let items_table: HashMap<String, Vec<Item>> = from_str(&items_string).expect("Could not load TOML Secrets. Please check formatting");
     
     items_table
