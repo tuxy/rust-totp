@@ -1,10 +1,19 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console on windows
+
+// New libraries
+use eframe::egui::{ self, Align2, FontId, RichText, Separator };
+use egui_toast::*;
+
+// Current libraries
 use rust_otp;
+use arboard::Clipboard;
+use platform_dirs::AppDirs;
+
+// To remove / offload
 use serde::Deserialize;
 use toml::from_str;
-use platform_dirs::AppDirs;
 use indicatif::ProgressBar;
 use ctrlc;
-use arboard::Clipboard;
 
 use clap::Parser;
 

@@ -8,6 +8,7 @@ Very basic CLI TOTP application written in rust (Also my first rust app). Initia
  - Custom configuration file
 
 Planned features:
+ - TODO Gui (Planning to use egui for ease and performance)
  - Better error handling
  - Config check
  - Secrets encryption and authentication
