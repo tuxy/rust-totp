@@ -1,147 +1,124 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console on windows
 
-// New libraries
 use eframe::egui::{ self, Align2, FontId, RichText, Separator };
-use egui_toast::*;
-
-// Current libraries
+use std::{ cmp::Ordering, thread, time::Duration };
 use rust_otp;
 use arboard::Clipboard;
-use platform_dirs::AppDirs;
+use egui_toast::*;
 
-// To remove / offload
-use serde::Deserialize;
-use toml::from_str;
-use indicatif::ProgressBar;
-use ctrlc;
+mod load; // Moved seperate functions to load.rs
 
-use clap::Parser;
+// UI Constants (For quick adjustments...)
+const ALIGNMENT: usize = 6;
+const ALIGNMENT_TIME: usize = 2;
+const ALIGNMENT_STRING: usize = 12;
+const DELAY: Duration = Duration::from_millis(5);
 
-use std:: {
-    collections::HashMap, fs, io, sync::{atomic::{AtomicBool, Ordering}, Arc}, thread, time::{Duration, SystemTime, UNIX_EPOCH}
-};
+fn main() -> Result<(), eframe::Error> {
 
-#[derive(Parser)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    name: String
+    // Adding a config system to be able to switch settings such as always on top, etc...
+    env_logger::init(); 
+    let options = eframe::NativeOptions { // Setting native window options. TODO: Options to change this?
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([360.0, 640.0])
+            .with_always_on_top(),
+            // Always on top <-----
+        ..Default::default()
+    };
+    eframe::run_native(
+        "rust-totp", 
+        options, // Option presets?
+        Box::new(|_cc| {
+            Ok(Box::<Secrets>::default())
+        }),
+    )
+
+}
+struct Secrets { // Variable init for vars "thrown" into the impl for App
+    names: Vec<String>,
+    keys: Vec<String>,
+    time: Vec<u64>,
+    clipboard: Clipboard,
+    clipboard_timer: u16,
+    toasts: Toasts,
 }
 
-#[derive(Deserialize, Debug)]
-struct Settings {
-    enable_clipboard: bool,
-}
-
-// Item struct to deserialize TOML
-#[derive(Deserialize, Debug)]
-struct Item {
-    name: String,
-    secret: String,
-    time: u64,
-}
-
-fn main() -> io::Result<()> {
-    // Setting termination (Ctrl-C Handler)
-    let running = Arc::new(AtomicBool::new(true));
-    let r = running.clone();
-
-    // Parse arguments & Initialise clipboard
-    let args = Args::parse();
-    let mut clipboard = Clipboard::new().expect("Could not initialise clipboard.");
-
-    // Setting Ctrl-C handler to "gracefully" handle error
-    ctrlc::set_handler(move || {
-        r.store(false, Ordering::SeqCst);
-    }).expect("Cannot set Ctrl-C handler.");
-
-    // Load keys (name & secret) from HashMap
-    let keys = &load_keys()["key"];
-
-    // Load settings into settings
-    let settings = load_settings();
-
-    let _test = load_settings();
-    // Decodes secrets and prints out code + time left
-    // Variable to (very shoddily) check if code has been found 
-    let mut any: bool = false;
-    for i in keys {
-        if args.name.eq(&i.name) {
-                            
-            // Create a new indicatif progress bar
-            let pb = ProgressBar::new(i.time);
-
-            while running.load(Ordering::SeqCst) { // Ctrl-C handler
-                // Loop for timer & clipboard
-                // Finds TOTP code
-                let code = match rust_otp::make_totp(&i.secret.to_ascii_uppercase(), i.time, 0) {
-                    Ok(u32) => u32,
-                    Err(_otperror) => {
-                        panic!("Failed to generate codes from secret. Check if codes are valid.");
-                    },
-                };
-                // Checks if clipboard is enabled
-                if settings.enable_clipboard {
-                    clipboard.set_text(code.to_string()).unwrap();
-                }
-                // Sleep to prevent timer from moving too quickly
-                // TODO: Perfectly matches presented time for TOTP > Sometimes moves too quickly
-                thread::sleep(Duration::from_millis(250));
-                pb.set_position(time_left(i.time));
-                any = true;
-            }
+impl Default for Secrets { // The vars actually "thrown" into the impl for App by default (On startup)
+    fn default() -> Self {
+        
+        Self {
+            names: load::string_vec("name"),
+            keys: load::string_vec("secret"), // Functions from the load file to open CONFIG_DIR/secrets.toml
+            time: load::unsigned_vec(),
+            clipboard: Clipboard::new().expect("Could not initialise clipboard."),
+            clipboard_timer: 0,
+            toasts: Toasts::new()
+                .anchor(Align2::CENTER_BOTTOM, (0.0, -10.0))
+                .direction(egui::Direction::BottomUp),
         }
     }
+}
 
-    // Checks if keys exist. If they don't, then warn the user
-    if any {
-        clipboard.clear().expect("Unable to clear clipboard"); // Clear clipboard, exit and return ok
-        println!("Exiting & Clearing clipboard...");
-        Ok(())
-    } else {
-        println!("WARN: Found no keys.");
-        Ok(())
+impl eframe::App for Secrets {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {   
+                // Iterates over entries for totp codes and lists them
+                // TODO: Seperate into another file for organisation         
+                for (i, _el) in self.names.iter().enumerate() {
+
+                    let time = load::time_left(self.time[i]); // Set TOTP Time
+
+                    let code = match rust_otp::make_totp(&self.keys[i], self.time[i], 0) {
+                        Ok(u32) => u32,
+                        Err(_otperror) => { // I have no idea how match-error is handled in rust... 
+                            panic!("Failed to generate codes from secret. Check if codes are valid.");
+                        },
+                    };
+
+                    // Entire section that shows name, time left, copy button and code
+                    ui.horizontal(|ui| {
+                        ui.vertical(|ui| {
+
+                            ui.label(format!("▶ {:alignment$}", self.names[i], alignment = ALIGNMENT_STRING)); // Name of app
+
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(format!("{:0alignment$}", time, alignment = ALIGNMENT_TIME)).font(FontId::proportional(20.0))); // Time label
+                                if ui.button("copy").clicked() {
+                                    self.clipboard.set_text(code.to_string()).expect("Could not set clipboard");
+                                    self.clipboard_timer = 2000;
+                                    self.toasts.add(Toast {
+                                        text: "copied!".into(),
+                                        kind: ToastKind::Info,
+                                        options: ToastOptions::default()
+                                            .duration_in_seconds(10.0)
+                                            .show_progress(true),
+                                        ..Default::default()
+                                    });
+                                }
+                            });
+
+                        });
+                        ui.add_space(140.0);
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
+                            ui.label(RichText::new(format!("{:0alignment$}", code, alignment = ALIGNMENT)).font(FontId::proportional(40.0))); // TOTP Code
+                        });
+                    });
+                    ui.add(Separator::default());
+                }
+            });
+        });
+        match self.clipboard_timer.cmp(&1) {
+            Ordering::Greater => {self.clipboard_timer -= 1},
+            Ordering::Equal => {
+                self.clipboard_timer -= 1;
+                self.clipboard.clear().expect("Could not clear clipboard");
+            },
+            Ordering::Less => {},
+        }
+        thread::sleep(DELAY); // Attempt to reduce CPU usage
+        ctx.request_repaint(); // "Refresh" frame every 5 ms to avoid freezing on lost focus (MORE CPU USAGE)
+
+        self.toasts.show(ctx); // Show toasts
     }
-}
-
-// Function that returns time left of a TOTP (30 seconds ONLY)
-fn time_left(time: u64) -> u64 {
-    let start = SystemTime::now();
-    let time_since_epoch = start
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards???? Check system clock.")
-        .as_secs();
-    time - time_since_epoch % time 
-}
-
-// Loads keys from a TOML file into a HashMap
-fn load_keys() -> HashMap<String, Vec<Item>> {
-    
-    let app_dirs = AppDirs::new(Some("rstotp"), true).unwrap();
-    let config_file_path = app_dirs.config_dir.join("secrets.toml");
-
-    fs::create_dir_all(&app_dirs.config_dir).expect("Could not create config directory.");
-
-    // TODO: Use a more reliable method to load TOML file directly into a TOML, without converting to string and back. Any minor error in TOML or string would cause program to flip out
-    let items_string: String = fs::read_to_string(config_file_path.into_os_string())
-        .expect("Could not load toml. Check format?");
-    let items_table: HashMap<String, Vec<Item>> = from_str(&items_string)
-        .expect("Could not load TOML Secrets. Please check formatting");
-    
-    items_table
-}
-
-// Loads settings into struct Settings. May be a more idiomatic way to do this without a seperate function.
-fn load_settings() -> Settings {
-    
-    let app_dirs = AppDirs::new(Some("rstotp"), true).unwrap();
-    let config_file_path = app_dirs.config_dir.join("settings.toml");
-
-    fs::create_dir_all(&app_dirs.config_dir).expect("Could not create config directory.");
-
-    let items_string = fs::read_to_string(config_file_path.into_os_string())
-        .expect("Could not load settings.toml. Check if file exists.");
-    let items_table: Settings = from_str(&items_string)
-        .expect("Could not load settings.toml. Check format?");
-
-    items_table
 }
