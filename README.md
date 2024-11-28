@@ -1,7 +1,5 @@
 # rust-totp
 
-[demo]()
-
 ## Features
 Very basic CLI TOTP application written in rust (Also my first rust app). Initial Features include:
  - Multiple TOTP codes, searched by argument
@@ -21,6 +19,8 @@ Planned features:
 ```cargo build --release```
 
 ## Build for web
+
+**NO BUILD FILES INCLUDED FOR WEB. ALSO PERFORMANCE IS GOING TO BE SUBOPTIMAL (try it yourself)**
 
 Refer to [the web deploy](https://github.com/emilk/eframe_template?tab=readme-ov-file#web-deploy) section for egui, but essentially:
 
