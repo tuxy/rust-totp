@@ -1,6 +1,6 @@
 # rust-totp
 
-[](showcase.gif)
+![](showcase.gif)
 
 ## Features
 Very basic CLI TOTP application written in rust (Also my first rust app). Initial Features include:
