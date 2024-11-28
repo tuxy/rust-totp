@@ -1,5 +1,7 @@
 # rust-totp
 
+![](showcase.gif)
+
 ## Features
 Very basic CLI TOTP application written in rust (Also my first rust app). Initial Features include:
  - Multiple TOTP codes, searched by argument
